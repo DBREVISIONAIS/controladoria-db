@@ -30,6 +30,7 @@ OABS_PADRAO = [
 
 RESPONSAVEIS = ["TAÍS", "LUCAS", "THOMAS", "KAMILLA", "MARIANA",
                 "CAROLAINI", "MARIA LUIZA", "HANNA"]
+CONTROLADORIA = ["Kamilla", "Carolaini", "Mariana"]
 STATUS = ["PENDENTE", "PARA REVISAR", "PARA PROTOCOLAR", "AGUARDANDO",
           "PROTOCOLADO", "CONCLUÍDO"]
 PROCEDIMENTOS = ["", "PROCEDIMENTO COMUM", "JEF", "JEC",
@@ -149,6 +150,21 @@ def limpar(t):
     t = html.unescape(t)
     return re.sub(r"[ \t]{2,}", " ", t).strip()
 
+CABECALHOS = {
+    "User-Agent": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                   "AppleWebKit/537.36 (KHTML, like Gecko) "
+                   "Chrome/127.0.0.0 Safari/537.36"),
+    "Accept": "application/json, text/plain, */*",
+    "Accept-Language": "pt-BR,pt;q=0.9",
+    "Referer": "https://comunica.pje.jus.br/",
+    "Origin": "https://comunica.pje.jus.br",
+    "Connection": "keep-alive",
+}
+
+SESSAO = requests.Session()
+SESSAO.headers.update(CABECALHOS)
+
+
 def buscar_djen(oabs, ini, fim, por_pagina=50):
     novas, erros = 0, []
     for o in oabs:
@@ -160,11 +176,26 @@ def buscar_djen(oabs, ini, fim, por_pagina=50):
                      "dataDisponibilizacaoFim": fim,
                      "itensPorPagina": por_pagina, "pagina": pagina}
                 try:
-                    r = requests.get(API, params=p, timeout=60)
-                    r.raise_for_status()
-                    itens = r.json().get("items") or []
+                    r = SESSAO.get(API, params=p, timeout=60)
                 except Exception as e:
-                    erros.append(f'{o["numero"]}/{o["uf"]}: {e}')
+                    erros.append(f'{variante}/{o["uf"]}: falha de conexão — {e}')
+                    break
+                if r.status_code == 403:
+                    erros.append(
+                        f'{variante}/{o["uf"]}: 403 recusado pelo CNJ. '
+                        "A API bloqueou o cliente. Se persistir, teste a mesma "
+                        "URL no navegador: se lá abrir, o bloqueio é de "
+                        "cabeçalho ou de IP.")
+                    break
+                if r.status_code != 200:
+                    erros.append(f'{variante}/{o["uf"]}: HTTP {r.status_code} — '
+                                 f"{r.text[:200]}")
+                    break
+                try:
+                    itens = r.json().get("items") or []
+                except Exception:
+                    erros.append(f'{variante}/{o["uf"]}: resposta não é JSON — '
+                                 f"{r.text[:200]}")
                     break
                 if not itens:
                     break
@@ -204,7 +235,10 @@ st.set_page_config(page_title="Controladoria de prazos", layout="wide")
 fer, sus = carregar_calendario()
 
 st.sidebar.title("Controladoria")
-usuario = st.sidebar.text_input("Quem está operando", key="usuario")
+usuario = st.sidebar.selectbox("Conferido por", ["", *CONTROLADORIA],
+                               help="Quem está tratando as publicações agora. "
+                                    "Vai para a coluna de verificação da "
+                                    "controladoria em cada linha lançada.")
 aba = st.sidebar.radio("", ["Publicações a tratar", "Prazos", "Calendário"])
 
 with st.sidebar.expander("Buscar no DJEN"):
@@ -235,6 +269,7 @@ if aba == "Publicações a tratar":
         with c1:
             st.caption(f'{p.tribunal} · {p.orgao} · {p.tipo} · {p.classe}')
             st.markdown(f"**{p.processo}** — disponibilizada em {p.data_disp}")
+            st.markdown(f"Intimação dirigida a **{p.advogado}** (OAB {p.oab})")
             if p.link:
                 st.markdown(f"[Abrir no tribunal]({p.link})")
             st.text_area("Teor", p.teor, height=380, key="teor")
