@@ -168,7 +168,10 @@ SESSAO.headers.update(CABECALHOS)
 def buscar_djen(oabs, ini, fim, por_pagina=50):
     novas, erros = 0, []
     for o in oabs:
+        recusado = False
         for variante in (o["numero"], f'{o["numero"]}-O', f'{o["numero"]}-A'):
+            if recusado:
+                break
             pagina = 1
             while pagina <= 20:
                 p = {"numeroOab": variante, "ufOab": o["uf"],
@@ -181,11 +184,11 @@ def buscar_djen(oabs, ini, fim, por_pagina=50):
                     erros.append(f'{variante}/{o["uf"]}: falha de conexão — {e}')
                     break
                 if r.status_code == 403:
+                    recusado = True
                     erros.append(
-                        f'{variante}/{o["uf"]}: 403 recusado pelo CNJ. '
-                        "A API bloqueou o cliente. Se persistir, teste a mesma "
-                        "URL no navegador: se lá abrir, o bloqueio é de "
-                        "cabeçalho ou de IP.")
+                        f'{o["numero"]}/{o["uf"]}: 403 recusado pelo CNJ. '
+                        "Rode o diagnostico.py na mesma máquina para "
+                        "identificar a causa.")
                     break
                 if r.status_code != 200:
                     erros.append(f'{variante}/{o["uf"]}: HTTP {r.status_code} — '
